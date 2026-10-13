@@ -1,0 +1,11 @@
+name = "coffee-erp"
+pages_build_output_dir = "public"
+compatibility_date = "2024-09-23"
+
+# D1 数据库绑定（Pages Functions 通过 context.env.DB 访问）
+# 部署前请先执行：wrangler d1 create coffee-erp
+# 并把下方 database_id 替换成命令返回的 id
+[[d1_databases]]
+binding = "DB"
+database_name = "coffee-erp"
+database_id = "bfbf9f2b-540b-4d37-9a2f-7947b9a0d3c0"

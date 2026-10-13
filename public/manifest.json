@@ -1,0 +1,17 @@
+{
+  "name": "Maray Coffee 进销存",
+  "short_name": "Maray",
+  "description": "Maray Coffee 单产地咖啡店销售出库、门店盘点、订货管理移动工作台",
+  "lang": "zh-CN",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#586528",
+  "theme_color": "#586528",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

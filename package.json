@@ -1,0 +1,10 @@
+{
+  "name": "coffee-erp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "咖啡店进销存工作台 · 本地 Node 服务（无需联网/Cloudflare 账号即可运行）",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>咖啡店进销存工作台（本地离线版）</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <div id="modal-root"></div>
+
+  <!-- 浏览器内后端：拦截 /api/*，使用 localStorage 持久化，无需服务器 -->
+  <script src="local-backend.js"></script>
+  <!-- 前端应用（与线上版完全一致，照常调用 fetch('/api/...')） -->
+  <script src="app.js"></script>
+</body>
+</html>
