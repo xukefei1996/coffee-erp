@@ -442,7 +442,7 @@ async function regularReqThisWeek(env, storeId){
 var FEE_STANDARD = 80;
 var FEE_FREE_MIN_TOTAL = 2000; // 紧急订货总价达到此值（含）免物流费
 // 单据项快照开关：临时隔离时置 false（用户手动恢复历史原价期间，避免新单被快照写死）
-var SNAPSHOT_ENABLED = false; // 临时隔离态：用户正在手动改回物料原价，恢复后由管理员重新置 true 并回填快照
+var SNAPSHOT_ENABLED = true; // 快照机制已重新开启（用户已于 coffee-erp-git 站改回物料原价，机制恢复）
 // 单据项快照：建单/改单时把物料名称与单价写入 items，避免后续改物料价/名污染历史单据与结算
 // （业务规则：历史订货/配货/退货单的内容与价格冻结，禁止被后续物料变更篡改；仅新建单以当时最新为准）
 function snapItems(items, matsMap){
