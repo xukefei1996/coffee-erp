@@ -1,0 +1,19 @@
+# 本地临时 / 脚本文件（不纳入部署仓库）
+.wrangler/
+backups/
+docs/
+node_modules/
+*.log
+_*.sql
+_delete_sim.sql
+_chk.log
+_deploy*.log
+_tbl.log
+_v*.log
+_verify*.log
+server.js
+deploy.mjs
+gen_seed_json.py
+seed_gen.py
+validate_sql.py
+verify_product.js
