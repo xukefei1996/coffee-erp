@@ -520,6 +520,8 @@ async function apiCreateDoc(env, user, body){
   // 总部直接下发订货单：仅限订货单，指定门店，免审批直接「已通过」，可立即配货；
   // 不占门店每周常规订货次数（不加收紧急物流费），豁免最低订货量（总部裁量）
   if(user.role==="hq"){
+    // 物料价/名表（snapItems 需要，供总部直发单快照 name+price；此前漏建导致 undefined 报错）
+    var hqMats=await all(env.DB,"select * from materials"); var matsMap={}; hqMats.forEach(function(m){matsMap[m.id]=m;});
     if(type!=="req") return json({error:"总部仅可直接下发订货单"}, 400);
     // 编辑总部自己撤回的直发草稿：修改数量/门店后重新下发，仍免审批、不占门店常规次数、豁免最低订货量
     if(body.id){
