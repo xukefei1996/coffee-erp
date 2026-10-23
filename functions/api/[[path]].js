@@ -842,6 +842,17 @@ async function apiMaterial(env, user, body){
   var denom = (packQty!=null && packQty>0) ? packQty : (minOrder>0 ? minOrder : 0);
   // 单价(每基础单位) = 采购总价 ÷ 包装规格(无则÷最低订购量)；无采购总价时兼容旧 price 字段
   var price = (packPrice!=null && packPrice>0 && denom>0) ? (packPrice/denom) : (parseFloat(body.price)||0);
+  // 防呆校验（v2026102301）：禁止两类会污染库存的盘点单位配置
+  // ① 盘点单位与基础单位同名却填了 ≠1 的系数（如 1张=1000张 → 库存被放大 1000 倍）
+  // ② 盘点单位与订货单位同名却与订货规格不一致（如 订货 1卷=800张，盘点却填 1卷=1张 → 换算打架）
+  if(stkUnit){
+    if(stkUnit===body.unit && stkQty!==1){
+      return json({error:"盘点单位与基础单位同名（"+stkUnit+"）时，盘点规格必须为 1（即 1"+stkUnit+"=1"+stkUnit+"）。当前填了 "+stkQty+"，会造成库存被放大 "+stkQty+" 倍。请改为 1，或把盘点单位改成其他单位（如 罐/盒）。"},400);
+    }
+    if(body.pack_unit && stkUnit===body.pack_unit && packQty!=null && stkQty!==packQty){
+      return json({error:"盘点单位与订货单位同为「"+stkUnit+"」，盘点规格必须与订货规格一致（="+packQty+"），不能为 "+stkQty+"。请填 "+packQty+"，否则盘点与订货换算互相打架。"},400);
+    }
+  }
   if(op==="add"){ var id=body.id||uid("m"); var inStk=(body.in_stocktake==="0"||body.in_stocktake===0)?0:1; var soMax=(await get1(env.DB,"select max(sort_order) as m from materials"))||{m:0}; var so=((soMax.m||0)+1); await run(env.DB,"insert into materials(id,name,unit,price,min_order,pack_qty,pack_unit,pack_price,stk_unit,stk_qty,sort_order,in_stocktake) values(?,?,?,?,?,?,?,?,?,?,?,?)",[id,body.name,body.unit,price,minOrder,packQty,body.pack_unit||null,packPrice||0,stkUnit,stkQty,so,inStk]); return json({ok:true, id:id}); }
   if(op==="edit"){ var inStk2=(body.in_stocktake==="0"||body.in_stocktake===0)?0:1; await run(env.DB,"update materials set name=?, unit=?, price=?, min_order=?, pack_qty=?, pack_unit=?, pack_price=?, stk_unit=?, stk_qty=?, in_stocktake=? where id=?",[body.name,body.unit,price,minOrder,packQty,body.pack_unit||null,packPrice||0,stkUnit,stkQty,inStk2,body.id]); return json({ok:true}); }
   if(op==="reorder"){

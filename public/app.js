@@ -1034,7 +1034,8 @@
     var nameBlock = '<div style="flex:1">' + esc(m.name) + ' <span class="muted">(' + esc(unitHint) + (priceTxt ? ' · ' + esc(priceTxt) : '') + ')</span></div>';
     // 注意：不使用内联 oninput（函数在 IIFE 作用域内，内联处理器全局调用会 ReferenceError），改由 document 委托的 input 事件触发 calcDocTotal
     return '<div class="row" style="align-items:center;margin-bottom:8px">' + nameBlock +
-      '<input class="in" style="width:120px" type="number" min="0" step="0.01" id="doc_' + m.id + '" placeholder="' + esc(ph) + '" value="' + (val0 !== '' ? val0 : '') + '"></div>';
+      '<input class="in" style="width:120px" type="number" min="0" step="0.01" id="doc_' + m.id + '" placeholder="' + esc(ph) + '" value="' + (val0 !== '' ? val0 : '') + '">' +
+      '<span id="doc_prev_' + m.id + '" class="muted" style="margin-left:8px;font-size:12px;white-space:nowrap"></span></div>';
   }
   // 订货/盘点弹窗「加载更多物料」：追加下一块，并同步 DOC_RENDERED_MIDS
   async function docLoadMore() {
@@ -1047,6 +1048,7 @@
     if (rowsEl) rowsEl.insertAdjacentHTML('beforeend', html);
     DOC_RENDERED_MIDS = DOC_RENDERED_MIDS.concat(slice);
     DOC_RENDER_IDX += take;
+    updateAllDocPreviews();
     if (DOC_RENDER_IDX >= DOC_ALL_MIDS.length) { var w = document.getElementById('doc_more_wrap'); if (w) w.style.display = 'none'; }
     else { var b = document.getElementById('doc_more_btn'); if (b) b.textContent = '加载更多物料（剩 ' + (DOC_ALL_MIDS.length - DOC_RENDER_IDX) + ' 项）'; }
   }
@@ -1129,6 +1131,7 @@
       (isHqOrder ? '' : '<button class="btn" data-act="saveDraft" data-type="' + type + '" data-id="' + draftId + '">保存草稿</button>') +
       '<button class="btn btn-primary" data-act="submitDoc" data-type="' + type + '" data-id="' + draftId + '">' + (isHqOrder ? '直接下发' : (DOC_URGENT ? '提交紧急订货' : '提交')) + '</button></div>');
     if (type === 'req') calcDocTotal();
+    updateAllDocPreviews();
   }
   function collectDocItems(type) {
     var items = [];
@@ -1141,6 +1144,21 @@
       if (v > 0) { var it = { mid: m.id, qty: v }; if (type === 'stk') it.actual = v; if (type === 'ret') it.reason = (document.getElementById('doc_reason') || {}).value || ''; items.push(it); }
     });
     return items;
+  }
+  // 订货/盘点/退货输入框实时换算预览：填数后立即显示「= 多少基础单位（多少订货/盘点单位）」，免去人工心算
+  function updateDocPreview(mid) {
+    var el = document.getElementById('doc_prev_' + mid); if (!el) return;
+    var inp = document.getElementById('doc_' + mid); if (!inp) { el.textContent = ''; return; }
+    var raw = parseFloat(inp.value) || 0;
+    if (raw <= 0) { el.textContent = ''; return; }
+    var m = byId(DB.materials, mid); if (!m) return;
+    var base, unitLabel;
+    if (DOC_MODAL_TYPE === 'stk') { var p = stkOf(mid); base = stkToBase(mid, raw); unitLabel = p ? ('（' + fmt(raw) + ' ' + p.unit + '）') : ''; }
+    else { var pp = packOf(mid); base = packToBase(mid, raw); unitLabel = pp ? ('（' + fmt(raw) + ' ' + pp.unit + '）') : ''; }
+    el.textContent = '= ' + fmt(base) + ' ' + m.unit + unitLabel;
+  }
+  function updateAllDocPreviews() {
+    (DOC_RENDERED_MIDS || []).forEach(function (mid) { try { updateDocPreview(mid); } catch (e) {} });
   }
   // 订货单实时合计（店长提交/审核时可见）：仅遍历已渲染的物料输入框（分块渲染下不全量遍历）
   function calcDocTotal() {
@@ -1499,6 +1517,7 @@
     }).join('');
     var hint = isHq ? '<span class="hint" style="margin-right:12px">拖动行首 ⠿ 调整顺序（仅总部，修改实时同步到所有门店）</span>' : '';
     return '<div class="toolbar"><h2 style="margin:0;font-size:18px">物料目录</h2><div class="spacer"></div>'+ hint +
+      '<button class="btn" data-act="matGuide">📘 填写指引</button>'+
       '<button class="btn btn-primary" data-act="newMaterial">新建物料</button></div>'+
       '<div class="card"><table><thead><tr>'+(isHq?'<th class="drag-col"></th>':'')+'<th>物料</th><th>单位</th><th class="num">单价</th><th class="num">最低订购</th><th>盘点</th><th class="ops">操作</th></tr></thead><tbody id="mat_tbody">'+rows+'</tbody></table></div>'+
       '<div class="hint">删除物料会同时清除其相关配方与库存记录。关闭「盘点」的物料（如门店路由器等非消耗品）不会出现在每周盘点单中。拖动行首 ⠿ 即可调整顺序，顺序对所有门店的订货 / 盘点 / 库存界面实时生效。</div>';
@@ -1519,23 +1538,76 @@
     if(pp>0 && pqv>0){ el.textContent = '系统自动核算：1'+unit+' ≈ ¥'+(pp/pqv).toFixed(4)+'（采购总价 ÷ '+(pq>0?('包装规格 '+fmt(pqv)):('最低订购量 '+fmt(pqv)))+'）'; }
     else { el.textContent = '填写“采购总价”后，系统自动核算每'+unit+'单价，无需手填'; }
   }
+  // 物料单位配置实时预览：填错立刻红字警告，避免污染库存
+  function matConfigPreview(){
+    var unit = val('mat_unit')||'?';
+    var pu = val('mat_pack_unit')||'';
+    var pq = parseFloat(val('mat_pack_qty'));
+    var su = val('mat_stk_unit')||'';
+    var sq = parseFloat(val('mat_stk_qty'));
+    var el = document.getElementById('mat_cfg_preview'); if(!el) return;
+    var lines = [];
+    if(pu && pq>0) lines.push('订货：填 1'+pu+' = '+fmt(pq)+' '+unit+'（系统自动换算）');
+    if(su && sq>0){
+      var warn='';
+      if(su===unit && sq!==1) warn=' ⚠️ 盘点单位与基础单位同名却≠1，会把库存放大 '+sq+' 倍！';
+      else if(pu && su===pu && pq!=null && sq!==pq) warn=' ⚠️ 盘点与订货同为「'+su+'」但规格不一致，换算会打架！';
+      lines.push('盘点：填 1'+su+' = '+fmt(sq)+' '+unit+warn);
+    } else if(!su){
+      lines.push('盘点：未单独设置，自动沿用订货单位（'+(pu||unit)+'）');
+    }
+    var hasWarn = lines.some(function(x){return x.indexOf('⚠️')>=0;});
+    el.innerHTML = (lines.length ? '当前配置预览：<br>'+lines.map(function(x){return '· '+x;}).join('<br>') : '填写后此处实时显示单位换算预览') +
+      (hasWarn ? '<br><b style="color:var(--danger)">请先修正红字警告再保存</b>' : '');
+  }
   function openMaterialModal(id){
     var m = id ? byId(DB.materials, id) : null;
-    openModal('<h2>'+(m?'编辑物料':'新建物料')+'</h2><input type="hidden" id="mat_id" value="'+(id||'')+'">'+
+    openModal('<h2>'+(m?'编辑物料':'新建物料')+'</h2><button class="btn btn-sm" data-act="matGuide" style="margin-bottom:10px">📘 填写指引（第一次必看）</button><input type="hidden" id="mat_id" value="'+(id||'')+'">'+
       '<div class="field"><label class="fld">名称</label><input class="in" id="mat_name" value="'+esc(m?m.name:'')+'"></div>'+
-      '<div class="form-grid"><div><label class="fld">单位(基础)</label><input class="in" id="mat_unit" value="'+esc(m?m.unit:'')+'" placeholder="如 ml / g"></div>'+
-      '<div><label class="fld">采购总价(元)</label><input class="in" id="mat_pack_price" type="number" step="0.01" value="'+esc((m&&m.pack_price)?m.pack_price:'')+'" placeholder="一包装单位的进货总价"></div></div>'+
-      '<div class="form-grid"><div><label class="fld">最低订购量</label><input class="in" id="mat_min" type="number" step="0.01" value="'+esc(m?m.min_order:'')+'"></div>'+
-      '<div><label class="fld">包装规格(选填)</label><input class="in" id="mat_pack_qty" type="number" step="0.01" value="'+esc((m&&m.pack_qty)?m.pack_qty:'')+'" placeholder="如 12000" oninput="matUnitPreview()"></div></div>'+
-      '<div class="field"><label class="fld">包装单位(选填·订货用)</label><input class="in" id="mat_pack_unit" value="'+esc(m?m.pack_unit:'')+'" placeholder="如 箱 / 袋 / 件"></div>'+
-      '<div class="form-grid"><div><label class="fld">盘点单位(选填·盘点用)</label><input class="in" id="mat_stk_unit" value="'+esc((m&&m.stk_unit)?m.stk_unit:'')+'" placeholder="如 罐 / 盒 / 个"></div>'+
-      '<div><label class="fld">盘点规格(选填)</label><input class="in" id="mat_stk_qty" type="number" step="0.01" value="'+esc((m&&m.stk_qty)?m.stk_qty:'')+'" placeholder="1盘点单位=多少基础单位"></div></div>'+
+      '<div class="form-grid"><div><label class="fld">① 单位（基础·库存记账单位）</label><input class="in" id="mat_unit" value="'+esc(m?m.unit:'')+'" placeholder="如 ml / g / 张 / 片 / 只 / 个" oninput="matConfigPreview()"></div>'+
+      '<div><label class="fld">② 采购总价(元)</label><input class="in" id="mat_pack_price" type="number" step="0.01" value="'+esc((m&&m.pack_price)?m.pack_price:'')+'" placeholder="一个「订货单位」的进货总价"></div></div>'+
+      '<div class="form-grid"><div><label class="fld">③ 最低订购量（基础单位）</label><input class="in" id="mat_min" type="number" step="0.01" value="'+esc(m?m.min_order:'')+'"></div>'+
+      '<div><label class="fld">④ 订货规格（1个订货单位=多少基础单位）</label><input class="in" id="mat_pack_qty" type="number" step="0.01" value="'+esc((m&&m.pack_qty)?m.pack_qty:'')+'" placeholder="牛奶 1盒=1000ml 填 1000；1箱=12000ml 填 12000" oninput="matUnitPreview();matConfigPreview()"></div></div>'+
+      '<div class="field"><label class="fld">⑤ 订货单位（门店订货时填写的单位，如 箱/盒/袋）</label><input class="in" id="mat_pack_unit" value="'+esc(m?m.pack_unit:'')+'" placeholder="如 箱 / 盒 / 袋" oninput="matConfigPreview()"></div>'+
+      '<div class="form-grid"><div><label class="fld">⑥ 盘点单位（门店盘点时实际点数的单位）</label><input class="in" id="mat_stk_unit" value="'+esc((m&&m.stk_unit)?m.stk_unit:'')+'" placeholder="如 罐/盒/个；不填则沿用订货单位" oninput="matConfigPreview()"></div>'+
+      '<div><label class="fld">⑦ 盘点规格（1个盘点单位=多少基础单位）</label><input class="in" id="mat_stk_qty" type="number" step="0.01" value="'+esc((m&&m.stk_qty)?m.stk_qty:'')+'" placeholder="1罐=330ml 填 330；若盘点单位=基础单位则填 1" oninput="matConfigPreview()"></div></div>'+
+      '<div class="hint" id="mat_cfg_preview" style="background:var(--bg-soft);border-radius:6px;padding:8px 10px"></div>'+
       '<div class="field" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px;margin-top:10px"><label class="fld" style="margin:0">参与每周盘点</label>'+
       '<label class="switch"><input type="checkbox" id="mat_stk_on" '+((m&&m.in_stocktake===0)?'':'checked')+'><span class="slider"></span></label></div>'+
       '<div class="hint">关闭后，该物料（如门店路由器、设备等非消耗品）不出现在每周盘点单中，但仍正常参与库存与订货管理。</div>'+
       '<div class="hint" id="mat_unit_preview">'+matUnitPreviewInit(m)+'</div>'+
-      '<div class="hint" style="border-top:1px dashed var(--muted);padding-top:8px;margin-top:4px">⚠️ 盘点单位与订货单位<b>相互独立</b>：盘点按「盘点单位」如实填写（如 罐/盒/个），可填小数；未设置时自动沿用订货单位（箱/袋）。<b>包材（杯托/单杯袋/双杯袋等）请在此设「盘点单位=个」</b>，否则会按「箱」盘点出现“几百箱”的失真。</div>'+
+      '<div class="hint" style="border-top:1px dashed var(--muted);padding-top:8px;margin-top:4px">⚠️ <b>最常见的填错</b>：把「订货规格」（如 1箱=12盒=12000ml）误填进「盘点规格」，导致库存被放大成百上千倍。记住——<b>盘点规格 = 1个盘点单位含多少基础单位</b>，与订货无关。包材（杯托/单杯袋/双杯袋等）盘点单位请填「个」、规格填 1。</div>'+
       '<div class="foot"><button class="btn" data-act="closeModal">取消</button><button class="btn btn-primary" data-act="saveMaterial">保存</button></div>');
+    matConfigPreview();
+  }
+  // 物料填写指引（手册）：供总部在新建/编辑物料前阅读，从源头避免单位配错
+  function openMaterialGuide(){
+    openModal('<h2>📘 物料填写指引</h2>'+
+      '<div style="max-height:60vh;overflow:auto;line-height:1.7;font-size:14px">'+
+      '<p><b>本系统有三套独立单位，务必分清：</b></p>'+
+      '<ol style="margin:0 0 12px 18px;padding:0">'+
+      '<li><b>① 基础单位（库存记账用）</b>：最小计量，如 <code>ml</code> / <code>g</code> / <code>张</code> / <code>片</code> / <code>只</code> / <code>个</code>。所有库存数都按它存。</li>'+
+      '<li><b>② 订货单位（门店订货填写用）</b>：如 <code>箱</code> / <code>盒</code> / <code>袋</code>。配合「④ 订货规格」换算成基础单位。</li>'+
+      '<li><b>③ 盘点单位（门店盘点点数用）</b>：如 <code>罐</code> / <code>盒</code> / <code>个</code>。配合「⑦ 盘点规格」换算成基础单位。可与订货单位不同。</li>'+
+      '</ol>'+
+      '<p><b>四个必填数字的含义（一眼对照）：</b></p>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px">'+
+      '<tr style="background:var(--bg-soft)"><th style="border:1px solid var(--muted);padding:4px 6px;text-align:left">字段</th><th style="border:1px solid var(--muted);padding:4px 6px;text-align:left">填什么</th><th style="border:1px solid var(--muted);padding:4px 6px;text-align:left">示例</th></tr>'+
+      '<tr><td style="border:1px solid var(--muted);padding:4px 6px">② 采购总价</td><td style="border:1px solid var(--muted);padding:4px 6px">1 个订货单位进货花多少钱</td><td style="border:1px solid var(--muted);padding:4px 6px">1箱牛奶 ¥45</td></tr>'+
+      '<tr><td style="border:1px solid var(--muted);padding:4px 6px">④ 订货规格</td><td style="border:1px solid var(--muted);padding:4px 6px">1 个订货单位 = 多少基础单位</td><td style="border:1px solid var(--muted);padding:4px 6px">1箱=12000ml 填 <b>12000</b></td></tr>'+
+      '<tr><td style="border:1px solid var(--muted);padding:4px 6px">⑤ 订货单位</td><td style="border:1px solid var(--muted);padding:4px 6px">订货时填的单位名</td><td style="border:1px solid var(--muted);padding:4px 6px">箱 / 盒 / 袋</td></tr>'+
+      '<tr><td style="border:1px solid var(--muted);padding:4px 6px">⑦ 盘点规格</td><td style="border:1px solid var(--muted);padding:4px 6px">1 个盘点单位 = 多少基础单位</td><td style="border:1px solid var(--muted);padding:4px 6px">1罐=330ml 填 <b>330</b>；若盘点单位就是基础单位则填 <b>1</b></td></tr>'+
+      '</table>'+
+      '<p><b style="color:var(--danger)">⚠️ 两条铁律（违反会污染库存，系统已自动拦截）：</b></p>'+
+      '<ul style="margin:0 0 12px 18px;padding:0">'+
+      '<li>盘点单位若与<b>基础单位同名</b>（如都叫「张」），盘点规格<b>必须=1</b>。填成 1000 会变成「1张=1000张」，库存瞬间放大千倍。</li>'+
+      '<li>盘点单位若与<b>订货单位同名</b>（如都叫「卷」），盘点规格<b>必须等于订货规格</b>（如都是 800）。不一致会导致盘点与订货换算互相打架。</li>'+
+      '</ul>'+
+      '<p><b>包材特殊处理：</b>杯托 / 单杯袋 / 双杯袋 / 吸管等，盘点单位填 <code>个</code>、规格填 <code>1</code>，避免按「箱」盘点出现“几百箱”的失真。</p>'+
+      '<p><b>牛奶等箱装物料：</b>订货单位建议填 <code>箱</code>，④订货规格填「1箱=多少 ml」（如纯牛奶 1箱=12盒×1000ml=12000ml，填 12000）；盘点单位填 <code>盒</code>、规格填单盒 ml（如 1000）。这样订货填「几箱」即可，无需心算。</p>'+
+      '<p class="muted">填写时右下角「当前配置预览」会实时回显换算；出现红字警告请先改对再保存。</p>'+
+      '</div>'+
+      '<div class="foot"><button class="btn btn-primary" data-act="closeModal">我知道了</button></div>');
   }
   async function saveMaterial(){
     var id = val('mat_id'); var name = val('mat_name'); var unit = val('mat_unit');
@@ -1544,6 +1616,11 @@
     var stkUnitVal = val('mat_stk_unit'); var stkUnit = (stkUnitVal||'').trim();
     var stkQtyVal = val('mat_stk_qty'); var stkQty = (stkQtyVal===""||stkQtyVal==null)?null:parseFloat(stkQtyVal);
     if(stkUnit && !(stkQty!=null && stkQty>0)){ toast('填写了盘点单位时，需同时填写盘点规格（如 1罐=330ml 填 330）'); return; }
+    // 防呆：与后端一致的拦截，提交前即时提示
+    if(stkUnit){
+      if(stkUnit===unit && stkQty!==1){ toast('盘点单位与基础单位同名（'+stkUnit+'）时，盘点规格必须填 1。当前填了 '+stkQty+'，会造成库存被放大。请改为 1 或换盘点单位。'); return; }
+      if(packUnit && stkUnit===packUnit && packQty!=null && stkQty!==packQty){ toast('盘点单位与订货单位同为「'+stkUnit+'」，盘点规格必须与订货规格一致（='+packQty+'）。请填 '+packQty+'。'); return; }
+    }
     if(!name){ toast('请输入名称'); return; }
     var stkOnEl = document.getElementById('mat_stk_on');
     var inStocktake = stkOnEl ? (stkOnEl.checked ? 1 : 0) : 1;
@@ -2096,6 +2173,7 @@
       else if (act === 'saveMaterial') { await saveMaterial(); }
       else if (act === 'delMaterial') { await delMaterial(el.getAttribute('data-id')); }
       else if (act === 'editMaterial') { openMaterialModal(el.getAttribute('data-id')); }
+      else if (act === 'matGuide') { openMaterialGuide(); }
       else if (act === 'newMaterial') { openMaterialModal(null); }
       else if (act === 'saveStore') { await saveStore(); }
       else if (act === 'newStore') { openStoreModal(); }
@@ -2147,7 +2225,7 @@
     var t = e.target;
     if (!t || t.tagName !== 'INPUT') return;
     // 订货单数量输入框（id 形如 doc_xxx）：实时重算本单合计
-    if (t.id && t.id.indexOf('doc_') === 0) { if (DOC_MODAL_TYPE === 'req') calcDocTotal(); return; }
+    if (t.id && t.id.indexOf('doc_') === 0) { updateDocPreview(t.id.slice(4)); if (DOC_MODAL_TYPE === 'req') calcDocTotal(); return; }
     // 物料编辑弹层：采购总价/规格/最低量变化时刷新“自动核算单价”预览
     if (t.id === 'mat_unit' || t.id === 'mat_pack_price' || t.id === 'mat_pack_qty' || t.id === 'mat_min') { matUnitPreview(); }
   }
