@@ -169,6 +169,22 @@
     triggerCsv('配货明细_' + month + '.csv', lines.join('\n'));
   }
 
+  async function downloadRetDetail() {
+    var di = document.getElementById('retExportDate');
+    var date = di ? di.value : '';
+    if (!date) { toast('请选择退货日期'); return; }
+    toast('正在导出 ' + date + ' 退货明细…');
+    var d = await apiGet('export-ret?date=' + encodeURIComponent(date));
+    if (!d || !d.ok) { toast(d && d.error ? d.error : '导出失败'); return; }
+    if (!d.rows || !d.rows.length) { toast(date + ' 没有退货明细'); return; }
+    var headers = ['单号', '门店', '日期', '状态', '物料编码', '物料名称', '规格', '单价(元)', '退货数', '单位', '退货金额(元)', '退货原因'];
+    var lines = [headers.map(csvCell).join(',')];
+    d.rows.forEach(function (r) {
+      lines.push([r.doc_id, r.store, r.date, r.status, r.mid, r.mat_name, r.spec, r.unit_price, r.ret_qty, r.unit, r.amount, r.reason].map(csvCell).join(','));
+    });
+    triggerCsv('退货明细_' + date + '.csv', lines.join('\n'));
+  }
+
   async function refresh() { var d = await apiGet('bootstrap'); DB = d; USER = d.currentUser; if (d && d.vers) LAST_VER = { base: String(d.vers.base || ''), docs: String(d.vers.docs || ''), inv: String(d.vers.inv || '') }; lastDocsSync = new Date().toISOString(); lastSalesSync = new Date().toISOString(); }
   // 登录态后台自动同步（分域版）：每 60 秒调一次 /api/poll（一条 SQL 扫 4 行 settings），
   // 只拉发生变化的域——base(目录/物料)/ops(单据/推荐)/inv(库存/销售)。
@@ -746,8 +762,13 @@
     });
     var canCreate = (type === 'req' && USER.role === 'hq') || ((type === 'req' || type === 'stk' || type === 'ret') && USER.role !== 'hq');
     var createLabel = (type === 'req' && USER.role === 'hq') ? '新建订货单（直发门店）' : ('新建' + (DOC_TYPE[type] || ''));
-    var exportBar = (type === 'alloc' && isHq)
-      ? '<div class="export-bar">月份 <input type="month" id="allocExportMonth" class="in" value="' + (new Date().getFullYear() + '-' + ('0' + (new Date().getMonth() + 1)).slice(-2)) + '"> <button class="btn btn-sm" data-act="downloadAllocDetail">下载明细 CSV</button></div>' : '';
+    var exportBar = '';
+    if(type === 'alloc' && isHq){
+      exportBar += '<div class="export-bar">月份 <input type="month" id="allocExportMonth" class="in" value="' + (new Date().getFullYear() + '-' + ('0' + (new Date().getMonth() + 1)).slice(-2)) + '"> <button class="btn btn-sm" data-act="downloadAllocDetail">下载配货明细 CSV</button></div>';
+    }
+    if(type === 'ret'){
+      exportBar += '<div class="export-bar">退货日期 <input type="date" id="retExportDate" class="in" value="' + todayStr() + '"> <button class="btn btn-sm" data-act="downloadRetDetail">下载退货明细 CSV</button></div>';
+    }
     var toolbar = '<div class="toolbar"><h2 style="margin:0;font-size:18px">' + (DOC_TYPE[type] || type) + '</h2><div class="spacer"></div>' +
       (canCreate ? '<button class="btn btn-primary" data-act="openDoc" data-type="' + type + '">' + createLabel + '</button>' : '') +
       (type === 'req' && USER.role !== 'hq' ? '<button class="btn btn-warn" data-act="openUrgentOrder">紧急订货</button>' : '') + '</div>' + exportBar;
@@ -2155,6 +2176,7 @@
       else if (act === 'reject') { await doApprove(el.getAttribute('data-id'), 'reject', window.prompt('驳回原因（可选）')); }
       else if (act === 'rejectDiff') { await doApprove(el.getAttribute('data-id'), 'reject', window.prompt('驳回原因（可选）')); }
       else if (act === 'downloadAllocDetail') { await downloadAllocDetail(); }
+      else if (act === 'downloadRetDetail') { await downloadRetDetail(); }
       else if (act === 'confirmAlloc') { openConfirmAllocModal(el.getAttribute('data-id')); }
       else if (act === 'openConfirmAlloc') { openConfirmAllocModal(el.getAttribute('data-id')); }
       else if (act === 'doConfirmAlloc') { await doConfirmAlloc(el.getAttribute('data-id')); }

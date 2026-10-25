@@ -1171,6 +1171,42 @@ async function apiExportAlloc(env, user, url){
   return json({ok:true, month:month, rows:rows});
 }
 
+// 退货明细导出：按日期（YYYY-MM-DD，默认今天）下载退货单物料级明细；HQ 看全部门店，门店仅本店
+async function apiExportRet(env, user, url){
+  if(!user) return json({error:"未登录"}, 401);
+  var date = (url.searchParams.get("date") || today() || "").slice(0,10);
+  if(!date) return json({error:"缺少日期参数"}, 400);
+  var docs;
+  if(user.role === "hq"){
+    docs = await all(env.DB, "select * from docs where type='ret' and date=?", [date]);
+  } else {
+    docs = await all(env.DB, "select * from docs where type='ret' and date=? and store_id=?", [date, user.store_id]);
+  }
+  var mats = await all(env.DB, "select * from materials");
+  var mmap = {}; mats.forEach(function(m){ mmap[m.id] = m; });
+  var stores = await all(env.DB, "select * from stores");
+  var smap = {}; stores.forEach(function(s){ smap[s.id] = s.name; });
+  var STATUS = { draft:'草稿', pending_manager:'待店长审', pending_hq:'待总部审', approved:'已通过', rejected:'已驳回' };
+  var rows = [];
+  docs.forEach(function(d){
+    var items = JSON.parse(d.items || "[]");
+    var storeName = smap[d.store_id] || d.store_id;
+    var statusCn = STATUS[d.status] || d.status;
+    items.forEach(function(it){
+      var m = mmap[it.mid] || {};
+      var pq = (m.pack_qty > 0) ? m.pack_qty : 0;
+      var packUnit = pq > 0 ? (m.pack_unit || '件') : (m.unit || '');
+      var base = parseFloat(it.qty || 0);                 // 退货基础单位数量
+      var retPack = pq > 0 ? Math.round(base / pq * 1000) / 1000 : base; // 换算成订货单位数
+      var price = (it.price != null) ? parseFloat(it.price) : parseFloat(m.price || 0);
+      var amount = Math.round(base * price * 100) / 100;   // 退货货值
+      var spec = pq > 0 ? (m.pack_qty + (m.unit || '') + '/' + (m.pack_unit || '件')) : (m.unit || '');
+      rows.push({ doc_id:d.id, store:storeName, date:d.date, status:statusCn, mid:it.mid, mat_name:(it.name || m.name || it.mid), spec:spec, unit_price:price, ret_qty:retPack, unit:packUnit, amount:amount, reason:(it.reason || '') });
+    });
+  });
+  return json({ok:true, date:date, rows:rows});
+}
+
 // ===== Block5：三方外卖平台对接（淘宝闪购等）=====
 // 凭证（仅总部可配置，含 AppKey/Secret/Token）
 async function apiPlatformCred(env, user, body){
@@ -1309,6 +1345,7 @@ async function handleApi(context){
   if(route === "summary"){ if(!user) return json({error:"未登录"}, 401); return await apiSummary(env, user, url); }
   if(route === "settlement"){ if(!user) return json({error:"未登录"}, 401); return await apiSettlement(env, user, url); }
   if(route === "export-alloc"){ if(!user) return json({error:"未登录"}, 401); return await apiExportAlloc(env, user, url); }
+  if(route === "export-ret"){ return await apiExportRet(env, user, url); }
   if(route === "platform-cred"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformCred(env, user, body); }
   if(route === "platform-shops"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformShops(env, user, body); }
   if(route === "platform-items"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformItems(env, user, body); }
