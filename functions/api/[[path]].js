@@ -1174,13 +1174,14 @@ async function apiExportAlloc(env, user, url){
 // 退货明细导出：按日期（YYYY-MM-DD，默认今天）下载退货单物料级明细；HQ 看全部门店，门店仅本店
 async function apiExportRet(env, user, url){
   if(!user) return json({error:"未登录"}, 401);
-  var date = (url.searchParams.get("date") || today() || "").slice(0,10);
-  if(!date) return json({error:"缺少日期参数"}, 400);
+  var month = (url.searchParams.get("month") || "").trim();
+  if(!month) return json({error:"缺少月份参数"}, 400);
+  var like = month + "%";
   var docs;
   if(user.role === "hq"){
-    docs = await all(env.DB, "select * from docs where type='ret' and date=?", [date]);
+    docs = await all(env.DB, "select * from docs where type='ret' and date like ?", [like]);
   } else {
-    docs = await all(env.DB, "select * from docs where type='ret' and date=? and store_id=?", [date, user.store_id]);
+    docs = await all(env.DB, "select * from docs where type='ret' and date like ? and store_id=?", [like, user.store_id]);
   }
   var mats = await all(env.DB, "select * from materials");
   var mmap = {}; mats.forEach(function(m){ mmap[m.id] = m; });
@@ -1204,7 +1205,7 @@ async function apiExportRet(env, user, url){
       rows.push({ doc_id:d.id, store:storeName, date:d.date, status:statusCn, mid:it.mid, mat_name:(it.name || m.name || it.mid), spec:spec, unit_price:price, ret_qty:retPack, unit:packUnit, amount:amount, reason:(it.reason || '') });
     });
   });
-  return json({ok:true, date:date, rows:rows});
+  return json({ok:true, month:month, rows:rows});
 }
 
 // ===== Block5：三方外卖平台对接（淘宝闪购等）=====

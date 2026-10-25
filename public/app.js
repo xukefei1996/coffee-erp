@@ -170,19 +170,19 @@
   }
 
   async function downloadRetDetail() {
-    var di = document.getElementById('retExportDate');
-    var date = di ? di.value : '';
-    if (!date) { toast('请选择退货日期'); return; }
-    toast('正在导出 ' + date + ' 退货明细…');
-    var d = await apiGet('export-ret?date=' + encodeURIComponent(date));
+    var di = document.getElementById('retExportMonth');
+    var month = di ? di.value : '';
+    if (!month) { toast('请选择退货月份'); return; }
+    toast('正在导出 ' + month + ' 退货明细…');
+    var d = await apiGet('export-ret?month=' + encodeURIComponent(month));
     if (!d || !d.ok) { toast(d && d.error ? d.error : '导出失败'); return; }
-    if (!d.rows || !d.rows.length) { toast(date + ' 没有退货明细'); return; }
+    if (!d.rows || !d.rows.length) { toast(month + ' 没有退货明细'); return; }
     var headers = ['单号', '门店', '日期', '状态', '物料编码', '物料名称', '规格', '单价(元)', '退货数', '单位', '退货金额(元)', '退货原因'];
     var lines = [headers.map(csvCell).join(',')];
     d.rows.forEach(function (r) {
       lines.push([r.doc_id, r.store, r.date, r.status, r.mid, r.mat_name, r.spec, r.unit_price, r.ret_qty, r.unit, r.amount, r.reason].map(csvCell).join(','));
     });
-    triggerCsv('退货明细_' + date + '.csv', lines.join('\n'));
+    triggerCsv('退货明细_' + month + '.csv', lines.join('\n'));
   }
 
   async function refresh() { var d = await apiGet('bootstrap'); DB = d; USER = d.currentUser; if (d && d.vers) LAST_VER = { base: String(d.vers.base || ''), docs: String(d.vers.docs || ''), inv: String(d.vers.inv || '') }; lastDocsSync = new Date().toISOString(); lastSalesSync = new Date().toISOString(); }
@@ -767,7 +767,7 @@
       exportBar += '<div class="export-bar">月份 <input type="month" id="allocExportMonth" class="in" value="' + (new Date().getFullYear() + '-' + ('0' + (new Date().getMonth() + 1)).slice(-2)) + '"> <button class="btn btn-sm" data-act="downloadAllocDetail">下载配货明细 CSV</button></div>';
     }
     if(type === 'ret'){
-      exportBar += '<div class="export-bar">退货日期 <input type="date" id="retExportDate" class="in" value="' + todayStr() + '"> <button class="btn btn-sm" data-act="downloadRetDetail">下载退货明细 CSV</button></div>';
+      exportBar += '<div class="export-bar">退货月份 <input type="month" id="retExportMonth" class="in" value="' + (new Date().getFullYear() + '-' + ('0' + (new Date().getMonth() + 1)).slice(-2)) + '"> <button class="btn btn-sm" data-act="downloadRetDetail">下载退货明细 CSV</button></div>';
     }
     var toolbar = '<div class="toolbar"><h2 style="margin:0;font-size:18px">' + (DOC_TYPE[type] || type) + '</h2><div class="spacer"></div>' +
       (canCreate ? '<button class="btn btn-primary" data-act="openDoc" data-type="' + type + '">' + createLabel + '</button>' : '') +
