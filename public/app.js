@@ -1948,12 +1948,13 @@
     var sales = DB.sales || [];
     var today = todayStr();
     var end = (VIEW_STATE.sa && VIEW_STATE.sa.end) || today;
-    var start7 = dayAddJS(end, -6);
+    var start = (VIEW_STATE.sa && VIEW_STATE.sa.start) || dayAddJS(end, -6);
+    var days = Math.max(1, Math.round((new Date(end + 'T00:00:00') - new Date(start + 'T00:00:00')) / 86400000) + 1);
     var tA = saAgg(sales.filter(function (s) { return s.date === today; }));
     // 近 7 天：改用后端 sales-range 实时数据（见 loadSalesWindow），不再受门店端 3 天本地缓存限制，选任意历史日期都能查出真实数据
     var win = VIEW_STATE.sa && VIEW_STATE.sa.window;
-    var winReady = !!(win && win.ok && win.start === start7 && win.end === end);
-    var winLoading = !!(win && win.loading && win.start === start7 && win.end === end);
+    var winReady = !!(win && win.ok && win.start === start && win.end === end);
+    var winLoading = !!(win && win.loading && win.start === start && win.end === end);
     if (!winReady && !winLoading) loadSalesWindow();
     var wSales = winReady ? (win.rows || []) : [];
     var wA = saAgg(wSales);
@@ -1966,7 +1967,7 @@
       var badge = i === 0 ? '🥇' : (i === 1 ? '🥈' : (i === 2 ? '🥉' : '<span class="rank-no">' + (i + 1) + '</span>'));
       return '<div class="rank-row"><div class="rank-badge">' + badge + '</div><div class="rank-name">' + esc(x.name) + '</div>' +
         '<div class="rank-nums"><b>' + fmt(x.qty) + ' 杯</b><span>' + money(x.income) + '</span></div></div>';
-    }).join('') : (winLoading ? '<div class="empty" style="padding:18px">加载中…</div>' : '<div class="empty" style="padding:18px">近 7 天暂无销售</div>');
+    }).join('') : (winLoading ? '<div class="empty" style="padding:18px">加载中…</div>' : '<div class="empty" style="padding:18px">该区间暂无销售</div>');
     // 历史销售查询（日期范围，不受「最近销售」3 天窗口限制；走后端 sales-range 接口查全量历史）
     var rstart = (VIEW_STATE.sa && VIEW_STATE.sa.rstart) || dayAddJS(today, -30);
     var rend = (VIEW_STATE.sa && VIEW_STATE.sa.rend) || today;
@@ -1989,15 +1990,15 @@
       '<div class="card" style="margin-top:14px"><h3>今日销售 · ' + today + '</h3>' +
       '<div class="grid-3">' + stat('今日销售总金额', money(tA.income)) + stat('今日杯量', fmt(tA.qty) + ' 杯') + stat('今日订单数', tA.orders + ' 单') + '</div>' +
       '<div class="sa-sub">各渠道销售</div>' + saChannelRows(tA) + '</div>' +
-      '<div class="card" style="margin-top:14px"><h3>近 7 天销售（' + start7 + ' ~ ' + end + '）</h3>' +
-      '<div class="sa-date-pick">统计至 <input class="in" type="date" id="sa_end" value="' + end + '" max="' + today + '"><span class="hint">选择日期后自动统计往前 7 天（含历史，走后端实时数据）</span></div>' +
-      (winLoading ? '<div class="empty" style="padding:18px">正在加载 ' + start7 + ' ~ ' + end + ' 的真实销售数据…</div>'
+      '<div class="card" style="margin-top:14px"><h3>销售统计（' + start + ' ~ ' + end + '）</h3>' +
+      '<div class="sa-date-pick">从 <input class="in" type="date" id="sa_start" value="' + start + '" max="' + today + '"> 到 <input class="in" type="date" id="sa_end" value="' + end + '" max="' + today + '"><span class="hint">选择起始与结束日期，自动统计该区间销售（走后端实时数据，含历史）</span></div>' +
+      (winLoading ? '<div class="empty" style="padding:18px">正在加载 ' + start + ' ~ ' + end + ' 的真实销售数据…</div>'
         : (winReady
-          ? ('<div class="grid-3">' + stat('7 天总营收', money(wA.income)) + stat('7 天杯量', fmt(wA.qty) + ' 杯') + stat('日均营收', money(Math.round(wA.income / 7 * 100) / 100)) + '</div>' +
+          ? ('<div class="grid-3">' + stat('区间总营收', money(wA.income)) + stat('区间杯量', fmt(wA.qty) + ' 杯') + stat('日均营收', money(Math.round(wA.income / days * 100) / 100)) + '</div>' +
              '<div class="sa-sub">各渠道销售</div>' + saChannelRows(wA))
           : '<div class="empty" style="padding:18px">该时段暂无销售记录</div>')) +
       '</div>' +
-      '<div class="card" style="margin-top:14px"><h3>近 7 天商品销售排名 <span class="tag">按杯数降序</span></h3>' + rankRows + '</div>' +
+      '<div class="card" style="margin-top:14px"><h3>区间商品销售排名 <span class="tag">按杯数降序</span></h3>' + rankRows + '</div>' +
       '<div class="card" style="margin-top:14px"><h3>历史销售查询 <span class="tag">按日期范围</span></h3>' +
       '<div class="sa-date-pick">从 <input class="in" type="date" id="sa_range_start" value="' + rstart + '"> 到 <input class="in" type="date" id="sa_range_end" value="' + rend + '"> <button class="btn btn-sm btn-primary" data-act="salesRangeQuery">查询</button>' +
       '<span class="hint">可查任意历史日期（不受 3 天窗口限制）</span></div>' + queryBody + '</div>';
@@ -2015,12 +2016,14 @@
     VIEW_STATE.sa.query = { ok: true, rows: d.rows, totalQty: tq, totalIncome: Math.round(ti * 100) / 100, start: start, end: end };
     render();
   }
-  // 近 7 天窗口：按 sa_end 往前 7 天，调后端 sales-range 取真实销售数据（突破门店端 3 天本地缓存，任意历史日期均可查）
+  // 销售统计区间：按 sa_start ~ sa_end（用户自选，默认近 7 天），调后端 sales-range 取真实销售数据（突破门店端 3 天本地缓存，任意历史日期均可查）
   async function loadSalesWindow() {
     var today = todayStr();
     var end = (VIEW_STATE.sa && VIEW_STATE.sa.end) || today;
-    var start = dayAddJS(end, -6);
+    var start = (VIEW_STATE.sa && VIEW_STATE.sa.start) || dayAddJS(end, -6);
+    if (start > end) { var _t = start; start = end; end = _t; }
     VIEW_STATE.sa = VIEW_STATE.sa || {};
+    VIEW_STATE.sa.start = start; VIEW_STATE.sa.end = end;
     var w = VIEW_STATE.sa.window;
     if (w && w.ok && w.start === start && w.end === end) return;
     VIEW_STATE.sa.window = { loading: true, start: start, end: end };
@@ -2293,6 +2296,7 @@
     if (el.id === 'inv_store') { VIEW_STATE.inventory = VIEW_STATE.inventory || {}; VIEW_STATE.inventory.store = el.value; render(); return; }
     // 销售分析：切换统计截止日期后自动重算近 7 天数据（合并写入，避免清空历史查询状态）
     if (el.id === 'sa_end') { VIEW_STATE.sa = VIEW_STATE.sa || {}; VIEW_STATE.sa.end = el.value || todayStr(); VIEW_STATE.sa.window = null; render(); return; }
+    if (el.id === 'sa_start') { VIEW_STATE.sa = VIEW_STATE.sa || {}; VIEW_STATE.sa.start = el.value || dayAddJS(todayStr(), -6); VIEW_STATE.sa.window = null; render(); return; }
     // 购物车：商品/温度切换时刷新可用杯型（L 杯仅在配置了对应配方时显示）
     if (el.id === 'cart_pid' || el.id === 'cart_temp') {
       var sizeSel = document.getElementById('cart_size');
