@@ -1961,6 +1961,24 @@
       return '<div class="rank-row"><div class="rank-badge">' + badge + '</div><div class="rank-name">' + esc(x.name) + '</div>' +
         '<div class="rank-nums"><b>' + fmt(x.qty) + ' 杯</b><span>' + money(x.income) + '</span></div></div>';
     }).join('') : '<div class="empty" style="padding:18px">近 7 天暂无销售</div>';
+    // 历史销售查询（日期范围，不受「最近销售」3 天窗口限制；走后端 sales-range 接口查全量历史）
+    var rstart = (VIEW_STATE.sa && VIEW_STATE.sa.rstart) || dayAddJS(today, -30);
+    var rend = (VIEW_STATE.sa && VIEW_STATE.sa.rend) || today;
+    var q = VIEW_STATE.sa && VIEW_STATE.sa.query;
+    var queryBody = '';
+    if (q) {
+      if (!q.ok) { queryBody = '<div class="empty" style="padding:14px">' + esc(q.error || '查询失败') + '</div>'; }
+      else if (!q.rows.length) { queryBody = '<div class="empty" style="padding:14px">该日期范围内暂无销售记录</div>'; }
+      else {
+        var byDate = {};
+        q.rows.forEach(function (r) { var d = byDate[r.date] = byDate[r.date] || { qty: 0, income: 0 }; d.qty += r.qty; d.income += r.income; });
+        var dtRows = Object.keys(byDate).sort().reverse().map(function (dt) { var d = byDate[dt]; return '<tr><td>' + dt + '</td><td class="num">' + fmt(d.qty) + '</td><td class="num">' + money(d.income) + '</td></tr>'; }).join('');
+        var detailRows = q.rows.map(function (r) { return '<tr><td>' + r.date + '</td><td>' + esc(r.pname) + '</td><td>' + esc(tempLabel(r.temp)) + '</td><td>' + esc(sizeLabel(r.size)) + '</td><td class="num">' + r.qty + '</td><td>' + esc(r.channel) + '</td><td class="num">' + money(r.income) + '</td></tr>'; }).join('');
+        queryBody = '<div class="grid-3" style="margin-top:10px">' + stat('记录数', q.rows.length + ' 条') + stat('总杯量', fmt(q.totalQty) + ' 杯') + stat('总营收', money(q.totalIncome)) + '</div>' +
+          '<div class="sa-sub">按日汇总</div><table class="sa-table"><thead><tr><th>日期</th><th class="num">杯量</th><th class="num">营收</th></tr></thead><tbody>' + dtRows + '</tbody></table>' +
+          '<div class="sa-sub">销售明细（按时间倒序）</div><table class="sa-table"><thead><tr><th>日期</th><th>商品</th><th>温度</th><th>杯型</th><th class="num">杯数</th><th>渠道</th><th class="num">收入</th></tr></thead><tbody>' + detailRows + '</tbody></table>';
+      }
+    }
     return '<div class="toolbar"><h2 style="margin:0;font-size:18px">销售分析</h2><div class="spacer"></div><span class="hint">本店数据</span></div>' +
       '<div class="card" style="margin-top:14px"><h3>今日销售 · ' + today + '</h3>' +
       '<div class="grid-3">' + stat('今日销售总金额', money(tA.income)) + stat('今日杯量', fmt(tA.qty) + ' 杯') + stat('今日订单数', tA.orders + ' 单') + '</div>' +
@@ -1969,9 +1987,24 @@
       '<div class="sa-date-pick">统计至 <input class="in" type="date" id="sa_end" value="' + end + '" max="' + today + '"><span class="hint">选择日期后自动统计往前 7 天</span></div>' +
       '<div class="grid-3">' + stat('7 天总营收', money(wA.income)) + stat('7 天杯量', fmt(wA.qty) + ' 杯') + stat('日均营收', money(Math.round(wA.income / 7 * 100) / 100)) + '</div>' +
       '<div class="sa-sub">各渠道销售</div>' + saChannelRows(wA) + '</div>' +
-      '<div class="card" style="margin-top:14px"><h3>近 7 天商品销售排名 <span class="tag">按杯数降序</span></h3>' + rankRows + '</div>';
+      '<div class="card" style="margin-top:14px"><h3>近 7 天商品销售排名 <span class="tag">按杯数降序</span></h3>' + rankRows + '</div>' +
+      '<div class="card" style="margin-top:14px"><h3>历史销售查询 <span class="tag">按日期范围</span></h3>' +
+      '<div class="sa-date-pick">从 <input class="in" type="date" id="sa_range_start" value="' + rstart + '"> 到 <input class="in" type="date" id="sa_range_end" value="' + rend + '"> <button class="btn btn-sm btn-primary" data-act="salesRangeQuery">查询</button>' +
+      '<span class="hint">可查任意历史日期（不受 3 天窗口限制）</span></div>' + queryBody + '</div>';
   }
-  // ---------- 结算单（HQ，按门店×月） ----------
+  // 历史销售查询：拉取指定日期范围的销售明细（后端 sales-range，不受门店端 3 天窗口限制）
+  async function loadSalesRange() {
+    var start = val('sa_range_start') || dayAddJS(todayStr(), -30);
+    var end = val('sa_range_end') || todayStr();
+    toast('正在查询 ' + start + ' ~ ' + end + ' 销售记录…');
+    var d = await apiGet('sales-range?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end));
+    if (!d || !d.ok) { toast(d && d.error ? d.error : '查询失败'); return; }
+    var tq = 0, ti = 0; d.rows.forEach(function (r) { tq += r.qty; ti += r.income; });
+    VIEW_STATE.sa = VIEW_STATE.sa || {};
+    VIEW_STATE.sa.rstart = start; VIEW_STATE.sa.rend = end;
+    VIEW_STATE.sa.query = { ok: true, rows: d.rows, totalQty: tq, totalIncome: Math.round(ti * 100) / 100, start: start, end: end };
+    render();
+  }
   function viewSettlement(){
     var month = (VIEW_STATE.settlement && VIEW_STATE.settlement.month) || todayStr().slice(0,7);
     var d = VIEW_STATE.settlement && VIEW_STATE.settlement.data, bodyHtml = '';
@@ -2228,13 +2261,14 @@
       else if (act === 'downloadSummary') { downloadSummary(); }
       else if (act === 'settlementMonth') { await loadSettlement(); }
       else if (act === 'downloadSettlement') { downloadSettlement(); }
+      else if (act === 'salesRangeQuery') { await loadSalesRange(); }
     } catch (err) { toast(err.message || '操作失败', 6000); } // 错误提示停留 6 秒：提交失败被拦时（如最低订购量），店长有足够时间看清原因
   }
   function onChange(e) {
     var el = e.target;
     if (el.id === 'inv_store') { VIEW_STATE.inventory = VIEW_STATE.inventory || {}; VIEW_STATE.inventory.store = el.value; render(); return; }
-    // 销售分析：切换统计截止日期后自动重算近 7 天数据
-    if (el.id === 'sa_end') { VIEW_STATE.sa = { end: el.value || todayStr() }; render(); return; }
+    // 销售分析：切换统计截止日期后自动重算近 7 天数据（合并写入，避免清空历史查询状态）
+    if (el.id === 'sa_end') { VIEW_STATE.sa = VIEW_STATE.sa || {}; VIEW_STATE.sa.end = el.value || todayStr(); render(); return; }
     // 购物车：商品/温度切换时刷新可用杯型（L 杯仅在配置了对应配方时显示）
     if (el.id === 'cart_pid' || el.id === 'cart_temp') {
       var sizeSel = document.getElementById('cart_size');

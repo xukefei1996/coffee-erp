@@ -11,7 +11,7 @@ const CHANNELS = [
 
 function json(data, status){ status = status || 200; return new Response(JSON.stringify(data), {status:status, headers:{"content-type":"application/json; charset=utf-8", "access-control-allow-origin":"*"}}); }
 function uid(prefix){ return prefix + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
-function today(){ var d=new Date(); var m=("0"+(d.getMonth()+1)).slice(-2); var day=("0"+d.getDate()).slice(-2); return d.getFullYear()+"-"+m+"-"+day; }
+function today(){ var d=new Date(); d.setHours(d.getHours()+8); var m=("0"+(d.getMonth()+1)).slice(-2); var day=("0"+d.getDate()).slice(-2); return d.getFullYear()+"-"+m+"-"+day; } // 北京时间(UTC+8)：Cloudflare Worker 原生 new Date() 为 UTC，避免凌晨营业被记成前一天
 function isoNow(){ return new Date().toISOString(); }
 // 中国时区(UTC+8)辅助：周几(0=日..5=五) 与 日期字符串，避免 Worker 运行于 UTC 导致周五判定偏移
 function cnDay(d){ var x=(d instanceof Date)?d:new Date(d); var y=new Date(x.getTime()+8*3600*1000); return y.getUTCDay(); }
@@ -1208,6 +1208,26 @@ async function apiExportRet(env, user, url){
   return json({ok:true, month:month, rows:rows});
 }
 
+// 销售记录按日期范围查询（门店端查历史用，不受「最近销售」3 天窗口限制）
+async function apiSalesRange(env, user, url){
+  if(!user) return json({error:"未登录"}, 401);
+  var start = (url.searchParams.get("start") || "").trim();
+  var end = (url.searchParams.get("end") || "").trim();
+  if(!start || !end) return json({error:"缺少起止日期"}, 400);
+  var where = ["date>=?", "date<=?"], params = [start, end];
+  if(user.role !== "hq"){ where.push("store_id=?"); params.push(user.store_id); }
+  else { var sr = url.searchParams.get("store"); if(sr){ where.push("store_id=?"); params.push(sr); } }
+  var rows = await all(env.DB, "select * from sales where " + where.join(" and ") + " order by date desc, created_at desc", params);
+  var prods = await all(env.DB, "select * from products");
+  var pmap = {}; prods.forEach(function(p){ pmap[p.id] = p; });
+  var CH = {}; (typeof CHANNELS !== "undefined" ? CHANNELS : []).forEach(function(c){ CH[c.id] = c.name; });
+  var out = rows.map(function(s){
+    var p = pmap[s.pid] || {};
+    return { id:s.id, date:s.date, pid:s.pid, pname:(p.name||s.pid), temp:s.temp, size:s.size, qty:parseInt(s.qty,10)||0, income:Math.round((parseFloat(s.income)||0)*100)/100, channel:(CH[s.channel]||s.channel||"其他"), created_at:s.created_at, order_no:s.order_no };
+  });
+  return json({ok:true, start:start, end:end, rows:out});
+}
+
 // ===== Block5：三方外卖平台对接（淘宝闪购等）=====
 // 凭证（仅总部可配置，含 AppKey/Secret/Token）
 async function apiPlatformCred(env, user, body){
@@ -1347,6 +1367,7 @@ async function handleApi(context){
   if(route === "settlement"){ if(!user) return json({error:"未登录"}, 401); return await apiSettlement(env, user, url); }
   if(route === "export-alloc"){ if(!user) return json({error:"未登录"}, 401); return await apiExportAlloc(env, user, url); }
   if(route === "export-ret"){ return await apiExportRet(env, user, url); }
+  if(route === "sales-range"){ if(!user) return json({error:"未登录"}, 401); return await apiSalesRange(env, user, url); }
   if(route === "platform-cred"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformCred(env, user, body); }
   if(route === "platform-shops"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformShops(env, user, body); }
   if(route === "platform-items"){ if(!user) return json({error:"未登录"}, 401); return await apiPlatformItems(env, user, body); }
